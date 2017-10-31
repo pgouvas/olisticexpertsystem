@@ -1,0 +1,129 @@
+#Type,Label,Arg1,Arg2
+#Acceptable Types: Class (C), InstanceOfClass (IOC), ObjectProperty(OP), KnowledgeTriple (KT)
+#
+# examples:
+#
+# C,Area,null        denotes a Class with label Area and no superclass
+# C,Continent,Area   denotes a Class with label Continent that has Area as superclass 
+# 
+# IoC,Europe,Continent      denotes an Instance of class continent with the label Europe
+#
+# OP,areaContainsArea, Area, Area,false,null    denotes an Object Property that has label: areaContainsArea, Domain: Area, Range: Area , it is Not transitive (false) and has no parental Object Property (null)
+#
+# KT,Europe,areaContainsArea,Athens denots a KnowledgeTriple that connects IoC: Europe with IoC: Continent through the ObjectProperty: areaContainsArea
+
+#Basic Metamodel
+
+C,Asset,null
+C,Vulnerability,null
+C,Control,null
+C,Threat,null
+C,Level,null
+C,RiskAssessment,null
+
+
+IoC,VL,Level
+IoC,L,Level
+IoC,M,Level
+IoC,H,Level
+IoC,VH,Level
+
+
+OP,AssetRelatesToAsset, Asset, Asset,false,null
+OP,AssetHasVulnerability, Asset, Vulnerability,false,null
+OP,AssetHasEnforcedControl, Asset, Control,false,null
+OP,VulnerabilityCanBeExploitedByThreat, Vulnerability, Threat,false,null
+OP,VulnerabilityHasImpact, Vulnerability, Level,false,null
+OP,VulnerabilityHasExploitability, Vulnerability, Level,false,null
+OP,ControlMitigatesThreat, Control, Threat,false,null
+OP,ControlMitigatesVulnerability, Control, Vulnerability,false,null
+OP,RiskAssessmentIncludesAsset, RiskAssessment, Asset,false,null
+
+OP,CanPevotDuringExploitation, Asset, Asset,true,null
+
+OP,ControlMitigatesThreat-100%, Control, Threat,false,ControlMitigatesThreat
+OP,ControlMitigatesThreat-75%, Control, Threat,false,ControlMitigatesThreat
+OP,ControlMitigatesThreat-50%, Control, Threat,false,ControlMitigatesThreat
+OP,ControlMitigatesThreat-25%, Control, Threat,false,ControlMitigatesThreat
+
+
+
+#CYBER Extensions
+C,CyberAsset,Asset
+C,CyberVulnerability,Vulnerability
+C,CyberControl,Control
+
+OP,CyberAssetHasCyberVulnerability, CyberAsset, CyberVulnerability,false,AssetHasVulnerability
+OP,CyberAssetHasNetworkConnectivityWithCyberAsset, CyberAsset, CyberAsset,false,AssetRelatesToAsset
+
+
+#PHYSICAL Extensions
+C,PhysicalAsset,Asset
+C,PhysicalVulnerability,Vulnerability
+C,PhysicalControl,Control
+
+OP,PhysicalAssetContainsPhysicalAsset, PhysicalAsset, PhysicalAsset,true,false
+
+
+
+
+#Instances
+
+IoC,UbitechBuilding,PhysicalAsset
+IoC,Ubitech1stFloor,PhysicalAsset
+IoC,Ubitech2ndFloor,PhysicalAsset
+IoC,DataCenter,PhysicalAsset
+IoC,FireExplotion,PhysicalVulnerability
+
+KT,UbitechBuilding,PhysicalAssetContainsPhysicalAsset,Ubitech1stFloor
+KT,UbitechBuilding,PhysicalAssetContainsPhysicalAsset,Ubitech2ndFloor
+KT,Ubitech2ndFloor,PhysicalAssetContainsPhysicalAsset,DataCenter
+
+
+IoC,Server1,CyberAsset
+IoC,Server2,CyberAsset
+IoC,Server3,CyberAsset
+IoC,Server4,CyberAsset
+IoC,Server5,CyberAsset
+
+IoC,CVE1,CyberVulnerability
+IoC,CVE2,CyberVulnerability
+IoC,CVE3,CyberVulnerability
+IoC,CVE4,CyberVulnerability
+IoC,CVE5,CyberVulnerability
+
+IoC,C1,CyberControl
+IoC,C2,CyberControl
+IoC,C3,CyberControl
+IoC,C4,CyberControl
+IoC,C5,CyberControl
+
+KT,CVE1,VulnerabilityHasImpact,VH
+KT,CVE1,VulnerabilityHasExploitability,VH
+KT,CVE2,VulnerabilityHasImpact,H
+KT,CVE2,VulnerabilityHasExploitability,H
+KT,CVE3,VulnerabilityHasImpact,M
+KT,CVE3,VulnerabilityHasExploitability,M
+KT,CVE4,VulnerabilityHasImpact,L
+KT,CVE4,VulnerabilityHasExploitability,L
+KT,CVE4,VulnerabilityHasImpact,VL
+KT,CVE4,VulnerabilityHasExploitability,VL
+
+KT,Server1,CyberAssetHasCyberVulnerability,CVE1
+KT,Server2,CyberAssetHasCyberVulnerability,CVE2
+KT,Server3,CyberAssetHasCyberVulnerability,CVE3
+KT,Server4,CyberAssetHasCyberVulnerability,CVE4
+KT,Server5,CyberAssetHasCyberVulnerability,CVE5
+
+KT,Server1,CyberAssetHasNetworkConnectivityWithCyberAsset,Server2
+KT,Server2,CyberAssetHasNetworkConnectivityWithCyberAsset,Server3
+KT,Server3,CyberAssetHasNetworkConnectivityWithCyberAsset,Server4
+KT,Server4,CyberAssetHasNetworkConnectivityWithCyberAsset,Server5
+
+IoC,riskassessment1,RiskAssessment
+KT,riskassessment1,RiskAssessmentIncludesAsset,Server1
+KT,riskassessment1,RiskAssessmentIncludesAsset,Server2
+KT,riskassessment1,RiskAssessmentIncludesAsset,Server3
+KT,riskassessment1,RiskAssessmentIncludesAsset,Server4
+KT,riskassessment1,RiskAssessmentIncludesAsset,Server5
+

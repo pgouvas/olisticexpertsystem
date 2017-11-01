@@ -1,10 +1,10 @@
 package eu.paasword.drools.risk;
 
-public class ExceptionDuringSetup {
+public class ExceptionStructural {
 
     private String msg;
 
-    public ExceptionDuringSetup(String msg) {
+    public ExceptionStructural(String msg) {
         this.msg = msg;
     }    
     

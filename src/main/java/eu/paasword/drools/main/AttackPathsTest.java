@@ -6,7 +6,9 @@ import eu.paasword.drools.risk.Dependency;
 import eu.paasword.drools.risk.ExceptionStructural;
 import eu.paasword.drools.risk.Path;
 import eu.paasword.drools.risk.Vulnerability;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 import org.kie.api.KieServices;
@@ -49,7 +51,9 @@ public class AttackPathsTest {
         a2.addVulnerability(v4);
         a3.addVulnerability(v1);
         a6.addVulnerability(v2);
+        a6.addVulnerability(v1);
         a7.addVulnerability(v2);
+        a7.addVulnerability(v1);
 
         //Dependencies
         // 0-IsInstalledOn  1-NetworkConnected
@@ -119,28 +123,63 @@ public class AttackPathsTest {
             } else if (obj instanceof Path) {
                 Path path = (Path) obj;
                 Map<String, String> values;
+                System.out.println("elements of "+path.getFrom()+" "+edges.get(path.getFrom()) );
                 if (edges.get(path.getFrom()) != null) {
                     values = edges.get(path.getFrom());
                 } else {
                     values = new HashMap<>();
                 }
                 values.put(path.getVuln(), path.getTo());
+                System.out.println("Adding to "+path.getFrom()+" "+values);
                 edges.put(path.getFrom(), values);
             }
         }//for
-        
-        logger.info(edges.toString());
-        
+
+        if (!errorduringexecution) {
+            logger.info(edges.toString());
+            constructPathsFromEntryPoint("RemoteAdversary", edges);
+        }//if
+
     }//EoM
 
-    private void constructPathsFromEntryPoint(String entrypoint, Map<String, Map<String, String>> edges){
-        
-                
-    }
-    
-    private void constructPathsToTargetPoint(){
-        
-    }
-    
-    
+    private static void constructPathsFromEntryPoint(String entrypoint, Map<String, Map<String, String>> edges) {
+//        System.out.println("Exploring " + entrypoint);
+        Map<String, String> targets = edges.get(entrypoint);
+        String path = entrypoint + "-> ";
+        for (Map.Entry<String, String> entry : targets.entrySet()) {
+            String vuln = entry.getKey();
+            String target = entry.getValue();
+//            System.out.println("Now processing " + target + " from path " + path + "");
+            if (!target.equalsIgnoreCase(entrypoint)) {
+//                System.out.println("Invoking Processing of " + target + " from path " + path + "");
+                explorePathsFromNode(target, vuln, path, edges);
+            }
+        }//for        
+    }//EoM
+
+    private static void explorePathsFromNode(String node, String vul, String path, Map<String, Map<String, String>> edges) {
+//        System.out.println("Exploring " + node + " from path " + path);
+        path += node + "(" + vul + ") -> ";
+        System.out.println("Path:" + path);
+
+        Map<String, String> targets = edges.get(node);
+        if (targets == null) {
+//            System.out.println("end of recursion for node <" + node + "> using path:" + path);
+        } else {
+            for (Map.Entry<String, String> entry : targets.entrySet()) {
+                String vuln = entry.getKey();
+                String target = entry.getValue();
+//                System.out.println("\nNow processing <" + target + "> from path " + path + "using node <" + node + "> ");
+                if (!target.equalsIgnoreCase(node)) {
+//                    System.out.println("Invoking Processing of " + target + " from path " + path + "");
+                    explorePathsFromNode(target, vuln, path, edges);
+                }
+            }//for             
+        }
+    }//EoM
+
+    private void constructPathsToTargetPoint() {
+
+    }//EoM
+
 }//EoC

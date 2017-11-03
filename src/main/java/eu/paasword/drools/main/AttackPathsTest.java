@@ -6,6 +6,7 @@ import eu.paasword.drools.risk.Dependency;
 import eu.paasword.drools.risk.ExceptionStructural;
 import eu.paasword.drools.risk.Path;
 import eu.paasword.drools.risk.Vulnerability;
+import static java.lang.Double.max;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.kie.api.runtime.KieContainer;
 import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.ObjectFilter;
 import org.kie.api.runtime.rule.FactHandle;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class AttackPathsTest {
 
@@ -97,12 +99,64 @@ public class AttackPathsTest {
         ksession.insert(d8);
         ksession.insert(at1);//attacker profile
 
+//////////////////scaling test
+        int assetmax = 4000;
+        int vulnsmax = 40;
+        int vulnspernode = 2;
+        int deppernode = 3;
+        List<Asset> labassets = new ArrayList<>();
+        List<Vulnerability> labvulns = new ArrayList<>();
+        List<Dependency> labdeps = new ArrayList<>();
+
+        for (int i = 0; i < assetmax; i++) {
+            Asset as = new Asset("as" + i, 2);
+            labassets.add(as);
+        }//for           
+
+        for (int i = 0; i < vulnsmax; i++) {
+            Vulnerability vuln = new Vulnerability("v" + i, 2, 0, 0);
+            labvulns.add(vuln);
+        }//for           
+
+        for (int i = 0; i < assetmax; i++) {
+            Asset as = labassets.get(i);
+
+            for (int v = 0; v < vulnspernode; v++) {
+                int randomNum0 = ThreadLocalRandom.current().nextInt(0, vulnsmax - 1);
+                as.addVulnerability(labvulns.get(randomNum0));
+            }
+
+            for (int j = 0; j < deppernode; j++) {
+                int randomNum = ThreadLocalRandom.current().nextInt(0, 3999);
+                if (i != randomNum) {
+                    Dependency dep = new Dependency(as.getId(), labassets.get(randomNum).getId(), 1);
+                    labdeps.add(dep);
+                }
+            }//for
+        }//for        
+
+        labassets.stream().forEach(t -> ksession.insert(t));
+        labvulns.stream().forEach(t -> ksession.insert(t));
+        labdeps.stream().forEach(t -> ksession.insert(t));
+
+        labassets.get(0).setIsentrypoint(true);
+        labassets.get(1).setIsentrypoint(true);
+
+////////////////////////////////////
         //fire
+        long startTime = System.currentTimeMillis();
+
         ksession.fireAllRules();
+
+        long stopTime = System.currentTimeMillis();
+        long elapsedTime = stopTime - startTime;
+        System.out.println("Reasoning Engine (Path Identification): " + elapsedTime);
+
+        startTime = System.currentTimeMillis();
 
         //iterate results
         boolean errorduringexecution = false;
-        Map<String, Map<String, String>> edges = new HashMap<>();         //<String,Map<String,String>> = Map<fromnode,Map<vuln,tonone>> 
+        Map<String, List<Map<String, List<String>>>> edges = new HashMap<>();         //<String, Map<String,String>{0} Map<String,String>{1} > = Map<fromnode, Map<vuln,tonone> Map<tonode,vuln>{1}   > 
 
         for (FactHandle handle : ksession.getFactHandles(new ObjectFilter() {
             public boolean accept(Object object) {
@@ -122,60 +176,94 @@ public class AttackPathsTest {
                 break;
             } else if (obj instanceof Path) {
                 Path path = (Path) obj;
-                Map<String, String> values;
-                System.out.println("elements of "+path.getFrom()+" "+edges.get(path.getFrom()) );
-                if (edges.get(path.getFrom()) != null) {
-                    values = edges.get(path.getFrom());
+                String from = path.getFrom();
+                String target = path.getTo();
+                String vuln = path.getVuln();
+
+                List<Map<String, List<String>>> edgelist;
+                Map<String, List<String>> vulnmap;
+                Map<String, List<String>> targetmap;
+
+                if (edges.get(from) == null) {
+                    edgelist = new ArrayList<>();
+                    vulnmap = new HashMap<>();
+                    targetmap = new HashMap<>();
+                    edgelist.add(vulnmap);
+                    edgelist.add(targetmap);
                 } else {
-                    values = new HashMap<>();
+                    edgelist = edges.get(from);
+                    vulnmap = edges.get(path.getFrom()).get(0);
+                    targetmap = edges.get(path.getFrom()).get(1);
                 }
-                values.put(path.getVuln(), path.getTo());
-                System.out.println("Adding to "+path.getFrom()+" "+values);
-                edges.put(path.getFrom(), values);
+                edges.put(from, edgelist);
+
+                //vuln index
+                if (vulnmap.get(vuln) == null) {
+                    List<String> vulnlist = new ArrayList<>();
+                    vulnlist.add(target);
+                    vulnmap.put(vuln, vulnlist);
+                } else if (!vulnmap.get(vuln).contains(target)) {
+                    vulnmap.get(vuln).add(target);
+                }
+
+                //target index
+                if (targetmap.get(target) == null) {
+                    List<String> targetlist = new ArrayList<>();
+                    targetlist.add(vuln);
+                    targetmap.put(target, targetlist);
+                } else if (!targetmap.get(target).contains(vuln)) {
+                    targetmap.get(target).add(vuln);
+                }
+
+//                edges.put(path.getFrom(), vulnmap);
             }
         }//for
 
+        stopTime = System.currentTimeMillis();
+        elapsedTime = stopTime - startTime;
+        System.out.println("Path Indexing: " + elapsedTime);
+
         if (!errorduringexecution) {
             logger.info(edges.toString());
+            startTime = System.currentTimeMillis();
             constructPathsFromEntryPoint("RemoteAdversary", edges);
+            stopTime = System.currentTimeMillis();
+            elapsedTime = stopTime - startTime;
+            System.out.println("Path Serialization: " + elapsedTime);
         }//if
 
     }//EoM
 
-    private static void constructPathsFromEntryPoint(String entrypoint, Map<String, Map<String, String>> edges) {
+    private static void constructPathsFromEntryPoint(String entrypoint, Map<String, List<Map<String, List<String>>>> edges) {
 //        System.out.println("Exploring " + entrypoint);
-        Map<String, String> targets = edges.get(entrypoint);
+        Map<String, List<String>> targets = edges.get(entrypoint).get(1);
         String path = entrypoint + "-> ";
-        for (Map.Entry<String, String> entry : targets.entrySet()) {
-            String vuln = entry.getKey();
-            String target = entry.getValue();
-//            System.out.println("Now processing " + target + " from path " + path + "");
-            if (!target.equalsIgnoreCase(entrypoint)) {
-//                System.out.println("Invoking Processing of " + target + " from path " + path + "");
+        for (Map.Entry<String, List<String>> entry : targets.entrySet()) {
+            String target = entry.getKey();
+            List<String> vulnlist = entry.getValue();
+            for (String vuln : vulnlist) {
                 explorePathsFromNode(target, vuln, path, edges);
-            }
+            }//for
         }//for        
     }//EoM
 
-    private static void explorePathsFromNode(String node, String vul, String path, Map<String, Map<String, String>> edges) {
+    private static void explorePathsFromNode(String node, String vul, String path, Map<String, List<Map<String, List<String>>>> edges) {
 //        System.out.println("Exploring " + node + " from path " + path);
         path += node + "(" + vul + ") -> ";
-        System.out.println("Path:" + path);
+        //System.out.println("Path:" + path);
 
-        Map<String, String> targets = edges.get(node);
-        if (targets == null) {
+        if (edges.get(node) == null) {
 //            System.out.println("end of recursion for node <" + node + "> using path:" + path);
         } else {
-            for (Map.Entry<String, String> entry : targets.entrySet()) {
-                String vuln = entry.getKey();
-                String target = entry.getValue();
-//                System.out.println("\nNow processing <" + target + "> from path " + path + "using node <" + node + "> ");
-                if (!target.equalsIgnoreCase(node)) {
-//                    System.out.println("Invoking Processing of " + target + " from path " + path + "");
+            Map<String, List<String>> targets = edges.get(node).get(1);
+            for (Map.Entry<String, List<String>> entry : targets.entrySet()) {
+                String target = entry.getKey();
+                List<String> vulnlist = entry.getValue();
+                for (String vuln : vulnlist) {
                     explorePathsFromNode(target, vuln, path, edges);
                 }
-            }//for             
-        }
+            }//for                 
+        }//for             
     }//EoM
 
     private void constructPathsToTargetPoint() {

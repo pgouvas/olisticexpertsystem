@@ -1,0 +1,602 @@
+package eu.paasword.drools;
+
+import eu.paasword.drools.Util;
+
+rule "inference-1-Class Transitiveness Inference"
+when
+    $clazz: Clazz( parent != null , parent.parent != null  ) 
+    not ( exists(  Clazz( name==$clazz.name , parent == $clazz.parent.parent ) ) )
+then
+    System.out.println( "Class Transitiveness --> New Class has to be created with name: "+ $clazz.getName() +" and parent: "+$clazz.getParent().getParent().getName() );
+    Clazz newclazz = new Clazz($clazz.getName(),$clazz.getParent().getParent());
+    insert(newclazz);
+end
+
+
+rule "inference-2-Supertype Inheritance Inference"
+when
+
+    $instance: InstanceOfClazz( clazz.parent !=null   ) 
+    not ( exists(  InstanceOfClazz( name==$instance.name , clazz == clazz.parent ) ) )
+then
+    System.out.println( "Supertype Inheritance --> New InstanceOfClass has to be created with name: "+ $instance.getName() +" and class: "+$instance.getClazz().getParent().getName() );
+    InstanceOfClazz newinstanceofclazz = new InstanceOfClazz($instance.getName(),$instance.getClazz().getParent());
+    insert(newinstanceofclazz);
+end
+
+
+rule "inference-3-Consistency Checking of Knowledge Triples based on Domain Restrictions"
+when
+    $triple: KnowledgeTriple() 
+    not ( exists(  InstanceOfClazz( name == $triple.subject.name , clazz == $triple.predicate.domain ) ) )
+then
+    System.out.println( "Modelling Error! Invalid Triple: " + $triple );
+    retract($triple);
+end
+
+rule "inference-4-Consistency Checking of Knowledge Triples based on Range Restrictions"
+when
+    $triple: KnowledgeTriple() 
+    not ( exists(  InstanceOfClazz( name == $triple.object.name  , clazz == $triple.predicate.range  ) ) )
+then
+    System.out.println( "Modelling Error! Invalid Triple: " + $triple );
+    retract($triple);
+end
+
+
+rule "inference-5-Consistency Checking of Sub-Property Definition based on Domain Restrictions"
+when
+    $op: ObjectProperty( parent != null ) 
+    eval ( Util.isClassSubclassOfClass($op.getDomain(), $op.getParent().getDomain() ) == false )
+then
+    System.out.println( "Modelling Error! Invalid Object Sub-Property based on Domain Restrictions: " + $op );
+    LogicalError error = new LogicalError("Modelling Error! Invalid Object Sub-Property based on Domain Restrictions: " + $op );
+    retract($op);
+    insert(error);
+end
+
+rule "inference-6-Consistency Checking of Sub-Property Definition based on Range Restrictions"
+when
+    $op: ObjectProperty( parent != null ) 
+    eval ( Util.isClassSubclassOfClass($op.getRange(), $op.getParent().getRange() ) == false )
+then
+    System.out.println( "Modelling Error! Invalid Object Sub-Property based on Range Restrictions: " + $op );
+    retract($op);
+end
+
+
+rule "inference-7-Knowledge Expansion through Range Generalization (make use of Supertype inheritance)"
+when
+    $triple: KnowledgeTriple() 
+    $objectinstance: InstanceOfClazz(name == $triple.object.name, clazz != $triple.object.clazz )
+    not ( 
+        exists(      
+            $newtriple: KnowledgeTriple( predicate == $triple.predicate , subject == $triple.subject, object.name == $triple.object.name , object.clazz != $triple.object.clazz  ) 
+        ) 
+    )
+then
+    System.out.println( "Knowledge Expansion through Range Generalization  --> New Triple has to be created Predicate:"+$triple.getPredicate().getName()+" Subject: "+$triple.getSubject().getName() +"( "+$triple.getSubject().getClazz().getName()+" )"+" Object: "+$objectinstance.getName() + " ( "+$objectinstance.getClazz().getName()+" )" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple.getSubject() , $triple.getPredicate() , $objectinstance );
+    insert(newtriple);
+end
+
+
+rule "inference-8-Knowledge Expansion through Domain Generalization (make use of Supertype inheritance)"
+when
+    $triple: KnowledgeTriple() 
+    $subjectinstance: InstanceOfClazz(name == $triple.subject.name, clazz != $triple.subject.clazz )
+    not ( 
+        exists(      
+            $newtriple: KnowledgeTriple( predicate == $triple.predicate , object == $triple.object, subject.name == $triple.subject.name , subject.clazz != $triple.subject.clazz  ) 
+        ) 
+    )
+then
+    System.out.println( "Knowledge Expansion through Domain Generalization --> New Triple has to be created Predicate:"+$triple.getPredicate().getName()+" Subject: "+$subjectinstance.getName() +"("+$subjectinstance.getClazz().getName()+")"+" Object: "+$triple.getObject().getName() +"("+$triple.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $subjectinstance , $triple.getPredicate() , $triple.getObject() );
+    insert(newtriple);
+end
+
+
+rule "inference-9-Knowledge Expansion through Transitive Property Interpretation"
+when
+    $pred: ObjectProperty(transitive == true )
+    $triple1: KnowledgeTriple( predicate == $pred , $subject1: subject , $object1: object ) 
+    $triple2: KnowledgeTriple( predicate == $pred , subject == $object1) 
+
+    not ( 
+        exists(      
+            KnowledgeTriple( predicate == $pred , subject == $triple1.subject, object == $triple2.object  ) 
+        ) 
+    )
+then
+    System.out.println( "Knowledge Expansion through Transitive Property   --> New Triple has to be created Predicate:"+$pred.getName()+" Subject: "+$triple1.getSubject().getName()+"("+$triple1.getSubject().getClazz().getName()+") Object: "+$triple2.getObject().getName()+"("+$triple2.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple1.getSubject() , $pred , $triple2.getObject() );
+    insert(newtriple);
+end
+
+
+rule "inference-10-Knowledge Expansion through Sub-Property Generalization"
+when
+    $pred: ObjectProperty( parent != null )
+    $triple: KnowledgeTriple( predicate == $pred , $subject1: subject , $object1: object ) 
+
+    not ( 
+        exists(      
+            KnowledgeTriple( predicate == $pred.parent , subject == $triple.subject, object == $triple.object  ) 
+        ) 
+    )
+then
+    System.out.println( "Knowledge Expansion through Sub-Property Generalization --> New Triple has to be created Predicate:"+$pred.getParent().getName()+" Subject: "+$triple.getSubject().getName()+"("+$triple.getSubject().getClazz().getName()+") Object: "+$triple.getObject().getName()+"("+$triple.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple.getSubject() , $pred.getParent() , $triple.getObject() );
+    insert(newtriple);
+end
+
+//////////////  PaaSword Rules   /////////////////////////
+
+rule "rule-14 Rule" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst42: InstanceOfClazz( clazz.name == 'Person', name =='Neo' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP127: ObjectProperty( name == 'hasLocation') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $inst42 , predicate == $predOP127, $inst42PredOP127objectInst92: object )
+
+eval ( $object1.getName() == 'Neo' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_GET' ) and 
+
+(  eval ($inst42PredOP127objectInst92.getName() == 'Alcobendas' )   ) 
+
+then 
+
+Advice advice = new Advice('positive', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-14 positive Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-14 Negation" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst42: InstanceOfClazz( clazz.name == 'Person', name =='Neo' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP127: ObjectProperty( name == 'hasLocation') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $inst42 , predicate == $predOP127, $inst42PredOP127objectInst92: object )
+
+not ( 
+
+eval ( $object1.getName() == 'Neo' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_GET' ) and 
+
+(  eval ($inst42PredOP127objectInst92.getName() == 'Alcobendas' )   )  
+
+) 
+
+then 
+
+Advice advice = new Advice('negative', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-14 Negative Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-15 Rule" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst41: InstanceOfClazz( clazz.name == 'Person', name =='Agent_Smith' )
+
+$inst86: InstanceOfClazz( clazz.name == 'Area', name =='GR' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP127: ObjectProperty( name == 'hasLocation') 
+
+$predOP113: ObjectProperty( name == 'areaIsLocatedIn') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr5: KnowledgeTriple( subject == $inst41 , predicate == $predOP127, $inst41PredOP127objectInst76: object )
+
+$tr6: KnowledgeTriple( subject == $inst86 , predicate == $predOP113, $inst86PredOP113objectInst92: object )
+
+eval ( $object1.getName() == 'Admin_Group' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_POST' ) and 
+
+(  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  or eval ($inst41PredOP127objectInst76.getName() == 'CentralEurope' )  or eval ($inst86PredOP113objectInst92.getName() == 'Alcobendas' )   ) 
+
+then 
+
+Advice advice = new Advice('positive', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-15 positive Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-15 Negation" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst41: InstanceOfClazz( clazz.name == 'Person', name =='Agent_Smith' )
+
+$inst86: InstanceOfClazz( clazz.name == 'Area', name =='GR' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP127: ObjectProperty( name == 'hasLocation') 
+
+$predOP113: ObjectProperty( name == 'areaIsLocatedIn') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr5: KnowledgeTriple( subject == $inst41 , predicate == $predOP127, $inst41PredOP127objectInst76: object )
+
+$tr6: KnowledgeTriple( subject == $inst86 , predicate == $predOP113, $inst86PredOP113objectInst92: object )
+
+not ( 
+
+eval ( $object1.getName() == 'Admin_Group' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_POST' ) and 
+
+(  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  or eval ($inst41PredOP127objectInst76.getName() == 'CentralEurope' )  or eval ($inst86PredOP113objectInst92.getName() == 'Alcobendas' )   )  
+
+) 
+
+then 
+
+Advice advice = new Advice('negative', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-15 Negative Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-16 Rule" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst87: InstanceOfClazz( clazz.name == 'City', name =='Athens' )
+
+$inst92: InstanceOfClazz( clazz.name == 'City', name =='Alcobendas' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP134: ObjectProperty( name == 'hasRequestLocation') 
+
+$predOP133: ObjectProperty( name == 'hasDateTimeInterval') 
+
+$predOP128: ObjectProperty( name == 'hasAreaCoordinates') 
+
+$predOP132: ObjectProperty( name == 'hasCoordinates') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst88: object )
+
+$tr5: KnowledgeTriple( subject == $req , predicate == $predOP134, $reqPredOP134objectInst92: object )
+
+$tr6: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr7: KnowledgeTriple( subject == $req , predicate == $predOP133, $reqPredOP133objectInst101: object )
+
+$tr8: KnowledgeTriple( subject == $inst87 , predicate == $predOP128, $inst87PredOP128objectInst3: object )
+
+$tr9: KnowledgeTriple( subject == $inst87 , predicate == $predOP132, $inst87PredOP132objectInst3: object )
+
+$tr10: KnowledgeTriple( subject == $inst92 , predicate == $predOP128, $inst92PredOP128objectInst5: object )
+
+$tr11: KnowledgeTriple( subject == $inst92 , predicate == $predOP132, $inst92PredOP132objectInst5: object )
+
+eval ( $object1.getName() == 'Park_Comp_Org' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_POST' ) and 
+
+(  (  eval ($reqPredOP123objectInst88.getName() == 'Sony Xperia' )  and eval ($reqPredOP134objectInst92.getName() == 'Alcobendas' )   )  or (  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  and eval ($reqPredOP133objectInst101.getName() == 'In_Working_Days' )  and (  eval ($inst87PredOP128objectInst3.getName() == 'GR_Athens_Coords' )  or eval ($inst87PredOP132objectInst3.getName() == 'GR_Athens_Coords' )  or (  eval ($inst92PredOP128objectInst5.getName() == 'Parking1_Coords' )  or eval ($inst92PredOP132objectInst5.getName() == 'Parking1_Coords' )   )   )   )   ) 
+
+then 
+
+Advice advice = new Advice('positive', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-16 positive Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-16 Negation" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst87: InstanceOfClazz( clazz.name == 'City', name =='Athens' )
+
+$inst92: InstanceOfClazz( clazz.name == 'City', name =='Alcobendas' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP134: ObjectProperty( name == 'hasRequestLocation') 
+
+$predOP133: ObjectProperty( name == 'hasDateTimeInterval') 
+
+$predOP128: ObjectProperty( name == 'hasAreaCoordinates') 
+
+$predOP132: ObjectProperty( name == 'hasCoordinates') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst88: object )
+
+$tr5: KnowledgeTriple( subject == $req , predicate == $predOP134, $reqPredOP134objectInst92: object )
+
+$tr6: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr7: KnowledgeTriple( subject == $req , predicate == $predOP133, $reqPredOP133objectInst101: object )
+
+$tr8: KnowledgeTriple( subject == $inst87 , predicate == $predOP128, $inst87PredOP128objectInst3: object )
+
+$tr9: KnowledgeTriple( subject == $inst87 , predicate == $predOP132, $inst87PredOP132objectInst3: object )
+
+$tr10: KnowledgeTriple( subject == $inst92 , predicate == $predOP128, $inst92PredOP128objectInst5: object )
+
+$tr11: KnowledgeTriple( subject == $inst92 , predicate == $predOP132, $inst92PredOP132objectInst5: object )
+
+not ( 
+
+eval ( $object1.getName() == 'Park_Comp_Org' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WEP_POST' ) and 
+
+(  (  eval ($reqPredOP123objectInst88.getName() == 'Sony Xperia' )  and eval ($reqPredOP134objectInst92.getName() == 'Alcobendas' )   )  or (  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  and eval ($reqPredOP133objectInst101.getName() == 'In_Working_Days' )  and (  eval ($inst87PredOP128objectInst3.getName() == 'GR_Athens_Coords' )  or eval ($inst87PredOP132objectInst3.getName() == 'GR_Athens_Coords' )  or (  eval ($inst92PredOP128objectInst5.getName() == 'Parking1_Coords' )  or eval ($inst92PredOP132objectInst5.getName() == 'Parking1_Coords' )   )   )   )   )  
+
+) 
+
+then 
+
+Advice advice = new Advice('negative', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-16 Negative Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-17 Rule" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst87: InstanceOfClazz( clazz.name == 'City', name =='Athens' )
+
+$inst92: InstanceOfClazz( clazz.name == 'City', name =='Alcobendas' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP134: ObjectProperty( name == 'hasRequestLocation') 
+
+$predOP133: ObjectProperty( name == 'hasDateTimeInterval') 
+
+$predOP128: ObjectProperty( name == 'hasAreaCoordinates') 
+
+$predOP132: ObjectProperty( name == 'hasCoordinates') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst88: object )
+
+$tr5: KnowledgeTriple( subject == $req , predicate == $predOP134, $reqPredOP134objectInst92: object )
+
+$tr6: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr7: KnowledgeTriple( subject == $req , predicate == $predOP133, $reqPredOP133objectInst101: object )
+
+$tr8: KnowledgeTriple( subject == $inst87 , predicate == $predOP128, $inst87PredOP128objectInst3: object )
+
+$tr9: KnowledgeTriple( subject == $inst87 , predicate == $predOP132, $inst87PredOP132objectInst3: object )
+
+$tr10: KnowledgeTriple( subject == $inst92 , predicate == $predOP128, $inst92PredOP128objectInst5: object )
+
+$tr11: KnowledgeTriple( subject == $inst92 , predicate == $predOP132, $inst92PredOP132objectInst5: object )
+
+eval ( $object1.getName() == 'Trinity' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WRITE' ) and 
+
+(  (  eval ($reqPredOP123objectInst88.getName() == 'Sony Xperia' )  and eval ($reqPredOP134objectInst92.getName() == 'Alcobendas' )   )  or (  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  and eval ($reqPredOP133objectInst101.getName() == 'In_Working_Days' )  and (  eval ($inst87PredOP128objectInst3.getName() == 'GR_Athens_Coords' )  or eval ($inst87PredOP132objectInst3.getName() == 'GR_Athens_Coords' )  or (  eval ($inst92PredOP128objectInst5.getName() == 'Parking1_Coords' )  or eval ($inst92PredOP132objectInst5.getName() == 'Parking1_Coords' )   )   )   )   ) 
+
+then 
+
+Advice advice = new Advice('positive', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-17 positive Advice for request: " + $req.getName()); 
+
+end 
+
+rule "rule-17 Negation" 
+
+when 
+
+$req: InstanceOfClazz( clazz.name == 'Request' )
+
+$inst87: InstanceOfClazz( clazz.name == 'City', name =='Athens' )
+
+$inst92: InstanceOfClazz( clazz.name == 'City', name =='Alcobendas' )
+
+$pred1: ObjectProperty( name == 'requestHasSubject' )
+
+$pred2: ObjectProperty( name == 'requestHasObject' )
+
+$pred3: ObjectProperty( name == 'requestHasAction' )
+
+$predOP123: ObjectProperty( name == 'comesFrom') 
+
+$predOP134: ObjectProperty( name == 'hasRequestLocation') 
+
+$predOP133: ObjectProperty( name == 'hasDateTimeInterval') 
+
+$predOP128: ObjectProperty( name == 'hasAreaCoordinates') 
+
+$predOP132: ObjectProperty( name == 'hasCoordinates') 
+
+$tr1: KnowledgeTriple( subject == $req , predicate == $pred1, $object1: object )
+
+$tr2: KnowledgeTriple( subject == $req , predicate == $pred2, $object2: object )
+
+$tr3: KnowledgeTriple( subject == $req , predicate == $pred3, $object3: object )
+
+$tr4: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst88: object )
+
+$tr5: KnowledgeTriple( subject == $req , predicate == $predOP134, $reqPredOP134objectInst92: object )
+
+$tr6: KnowledgeTriple( subject == $req , predicate == $predOP123, $reqPredOP123objectInst94: object )
+
+$tr7: KnowledgeTriple( subject == $req , predicate == $predOP133, $reqPredOP133objectInst101: object )
+
+$tr8: KnowledgeTriple( subject == $inst87 , predicate == $predOP128, $inst87PredOP128objectInst3: object )
+
+$tr9: KnowledgeTriple( subject == $inst87 , predicate == $predOP132, $inst87PredOP132objectInst3: object )
+
+$tr10: KnowledgeTriple( subject == $inst92 , predicate == $predOP128, $inst92PredOP128objectInst5: object )
+
+$tr11: KnowledgeTriple( subject == $inst92 , predicate == $predOP132, $inst92PredOP132objectInst5: object )
+
+not ( 
+
+eval ( $object1.getName() == 'Trinity' ) and 
+
+eval ( $object2.getName() == 'com.mycompany.xerp.web.WebController.countries' ) and 
+
+eval ( $object3.getName() == 'WRITE' ) and 
+
+(  (  eval ($reqPredOP123objectInst88.getName() == 'Sony Xperia' )  and eval ($reqPredOP134objectInst92.getName() == 'Alcobendas' )   )  or (  eval ($reqPredOP123objectInst94.getName() == 'ASUSG752' )  and eval ($reqPredOP133objectInst101.getName() == 'In_Working_Days' )  and (  eval ($inst87PredOP128objectInst3.getName() == 'GR_Athens_Coords' )  or eval ($inst87PredOP132objectInst3.getName() == 'GR_Athens_Coords' )  or (  eval ($inst92PredOP128objectInst5.getName() == 'Parking1_Coords' )  or eval ($inst92PredOP132objectInst5.getName() == 'Parking1_Coords' )   )   )   )   )  
+
+) 
+
+then 
+
+Advice advice = new Advice('negative', $req.getName() ); 
+
+insert(advice); 
+
+System.out.println("rule-17 Negative Advice for request: " + $req.getName()); 
+
+end 

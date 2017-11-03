@@ -1,0 +1,199 @@
+package eu.paasword.drools;
+
+import eu.paasword.drools.Util;
+import java.util.ArrayList;
+
+
+rule "inference-1-Class Transitiveness Inference"
+when
+    $clazz: Clazz( parent != null , parent.parent != null  ) 
+    not ( exists(  Clazz( name==$clazz.name , parent == $clazz.parent.parent ) ) )
+then
+    //System.out.println( "Class Transitiveness --> New Class has to be created with name: "+ $clazz.getName() +" and parent: "+$clazz.getParent().getParent().getName() );
+    Clazz newclazz = new Clazz($clazz.getName(),$clazz.getParent().getParent());
+    insert(newclazz);
+end
+
+
+rule "inference-2-Supertype Inheritance Inference"
+when
+
+    $instance: InstanceOfClazz( clazz.parent !=null   ) 
+    not ( exists(  InstanceOfClazz( name==$instance.name , clazz == clazz.parent ) ) )
+then
+    //System.out.println( "Supertype Inheritance --> New InstanceOfClass has to be created with name: "+ $instance.getName() +" and class: "+$instance.getClazz().getParent().getName() );
+    InstanceOfClazz newinstanceofclazz = new InstanceOfClazz($instance.getName(),$instance.getClazz().getParent());
+    insert(newinstanceofclazz);
+end
+
+
+rule "inference-3-Consistency Checking of Knowledge Triples based on Domain Restrictions"
+when
+    $triple: KnowledgeTriple() 
+    not ( exists(  InstanceOfClazz( name == $triple.subject.name , clazz == $triple.predicate.domain ) ) )
+then
+    //System.out.println( "Modelling Error! Invalid Triple: " + $triple );
+    retract($triple);
+end
+
+rule "inference-4-Consistency Checking of Knowledge Triples based on Range Restrictions"
+when
+    $triple: KnowledgeTriple() 
+    not ( exists(  InstanceOfClazz( name == $triple.object.name  , clazz == $triple.predicate.range  ) ) )
+then
+    //System.out.println( "Modelling Error! Invalid Triple: " + $triple );
+    retract($triple);
+end
+
+
+rule "inference-5-Consistency Checking of Sub-Property Definition based on Domain Restrictions"
+when
+    $op: ObjectProperty( parent != null ) 
+    eval ( Util.isClassSubclassOfClass($op.getDomain(), $op.getParent().getDomain() ) == false )
+then
+    //System.out.println( "Modelling Error! Invalid Object Sub-Property based on Domain Restrictions: " + $op );
+    LogicalError error = new LogicalError("Modelling Error! Invalid Object Sub-Property based on Domain Restrictions: " + $op );
+    retract($op);
+    insert(error);
+end
+
+rule "inference-6-Consistency Checking of Sub-Property Definition based on Range Restrictions"
+when
+    $op: ObjectProperty( parent != null ) 
+    eval ( Util.isClassSubclassOfClass($op.getRange(), $op.getParent().getRange() ) == false )
+then
+    //System.out.println( "Modelling Error! Invalid Object Sub-Property based on Range Restrictions: " + $op );
+    retract($op);
+end
+
+
+rule "inference-7-Knowledge Expansion through Range Generalization (make use of Supertype inheritance)"
+when
+    $triple: KnowledgeTriple() 
+    $objectinstance: InstanceOfClazz(name == $triple.object.name, clazz != $triple.object.clazz )
+    not ( 
+        exists(      
+            $newtriple: KnowledgeTriple( predicate == $triple.predicate , subject == $triple.subject, object.name == $triple.object.name , object.clazz != $triple.object.clazz  ) 
+        ) 
+    )
+then
+    //System.out.println( "Knowledge Expansion through Range Generalization  --> New Triple has to be created Predicate:"+$triple.getPredicate().getName()+" Subject: "+$triple.getSubject().getName() +"( "+$triple.getSubject().getClazz().getName()+" )"+" Object: "+$objectinstance.getName() + " ( "+$objectinstance.getClazz().getName()+" )" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple.getSubject() , $triple.getPredicate() , $objectinstance );
+    insert(newtriple);
+end
+
+
+rule "inference-8-Knowledge Expansion through Domain Generalization (make use of Supertype inheritance)"
+when
+    $triple: KnowledgeTriple() 
+    $subjectinstance: InstanceOfClazz(name == $triple.subject.name, clazz != $triple.subject.clazz )
+    not ( 
+        exists(      
+            $newtriple: KnowledgeTriple( predicate == $triple.predicate , object == $triple.object, subject.name == $triple.subject.name , subject.clazz != $triple.subject.clazz  ) 
+        ) 
+    )
+then
+    //System.out.println( "Knowledge Expansion through Domain Generalization --> New Triple has to be created Predicate:"+$triple.getPredicate().getName()+" Subject: "+$subjectinstance.getName() +"("+$subjectinstance.getClazz().getName()+")"+" Object: "+$triple.getObject().getName() +"("+$triple.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $subjectinstance , $triple.getPredicate() , $triple.getObject() );
+    insert(newtriple);
+end
+
+
+rule "inference-9-Knowledge Expansion through Transitive Property Interpretation"
+when
+    $pred: ObjectProperty(transitive == true )
+    $triple1: KnowledgeTriple( predicate == $pred , $subject1: subject , $object1: object ) 
+    $triple2: KnowledgeTriple( predicate == $pred , subject == $object1) 
+
+    not ( 
+        exists(      
+            KnowledgeTriple( predicate == $pred , subject == $triple1.subject, object == $triple2.object  ) 
+        ) 
+    )
+then
+    System.out.println( "Knowledge Expansion through Transitive Property   --> New Triple has to be created Predicate:"+$pred.getName()+" Subject: "+$triple1.getSubject().getName()+"("+$triple1.getSubject().getClazz().getName()+") Object: "+$triple2.getObject().getName()+"("+$triple2.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple1.getSubject() , $pred , $triple2.getObject() );
+    insert(newtriple);
+end
+
+
+rule "inference-10-Knowledge Expansion through Sub-Property Generalization"
+when
+    $pred: ObjectProperty( parent != null )
+    $triple: KnowledgeTriple( predicate == $pred , $subject1: subject , $object1: object ) 
+
+    not ( 
+        exists(      
+            KnowledgeTriple( predicate == $pred.parent , subject == $triple.subject, object == $triple.object  ) 
+        ) 
+    )
+then
+    //System.out.println( "Knowledge Expansion through Sub-Property Generalization --> New Triple has to be created Predicate:"+$pred.getParent().getName()+" Subject: "+$triple.getSubject().getName()+"("+$triple.getSubject().getClazz().getName()+") Object: "+$triple.getObject().getName()+"("+$triple.getObject().getClazz().getName()+")" );
+    KnowledgeTriple newtriple = new KnowledgeTriple( $triple.getSubject() , $pred.getParent() , $triple.getObject() );
+    insert(newtriple);
+end
+
+
+//////////////  Debug Rules   ///////////////////////
+/*
+rule "debug-PrintAllClasses"
+when
+    $clazz: Clazz() 
+then
+    System.out.println( "Clazz --> "+$clazz  );
+end
+
+
+rule "debug-PrintAllInstances"
+when
+    $instanceofclass: InstanceOfClazz() 
+then
+    System.out.println( "InstanceOfClazz --> "+$instanceofclass  );
+end
+
+rule "debug-PrintAllObjectProperties"
+when
+    $objectproperty: ObjectProperty() 
+then
+    System.out.println( "ObjectProperty --> "+$objectproperty  );
+end
+
+rule "debug-PrintAllTriples"
+when
+    $triple: KnowledgeTriple() 
+then
+    System.out.println( "KnowledgeTriple --> "+$triple  );
+end
+*/
+
+//////////////  Custom Rules   ///////////////////////
+////        Cyber
+
+rule "risk-Pivoting Rule between Cyber Assets network connected"
+
+when 
+
+$riskassessment: InstanceOfClazz( clazz.name == 'RiskAssessment' )
+$pred1: ObjectProperty( name == 'RiskAssessmentIncludesAsset' )
+$pred2: ObjectProperty( name == 'CyberAssetHasCyberVulnerability' )
+$pred3: ObjectProperty( name == 'CyberAssetHasNetworkConnectivityWithCyberAsset' )
+$pred4: ObjectProperty( name == 'VulnerabilityHasExploitability' )
+$pred5: ObjectProperty( name == 'CanPevotDuringExploitation' )
+
+$tr1: KnowledgeTriple( subject == $riskassessment , predicate == $pred1,  $asset1: object  , $asset1.clazz.name == 'CyberAsset'        )     //get a handle on asset1
+$tr2: KnowledgeTriple( subject == $asset1         , predicate == $pred2,  $vuln1:  object  , $vuln1.clazz.name == 'CyberVulnerability' )     //get a handle to assets1' vulenrability
+$tr3: KnowledgeTriple( subject == $asset1         , predicate == $pred3,  $asset2: object  , $asset2.clazz.name == 'CyberAsset')             //get a handle on asset2 that is connected
+$tr4: KnowledgeTriple( subject == $vuln1          , predicate == $pred4,  $exploitability: object  )              //get a handle on asset2 that is connected
+
+eval ( $exploitability.getName().equalsIgnoreCase("VH") ) or 
+eval ( $exploitability.getName().equalsIgnoreCase("H") )
+         
+then 
+KnowledgeTriple pivot1 = new KnowledgeTriple($asset1,$pred5,$asset2);
+insert(pivot1);
+System.out.println("Cyber Rule--> Riskassessment " + $riskassessment.getName() +" A pivot will happen between "+$asset1.getName()+" and "+ $asset2.getName()  ) ; 
+
+end
+
+//////////////  Custom Rules   ///////////////////////
+////   Physical

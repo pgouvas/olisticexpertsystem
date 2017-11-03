@@ -1,0 +1,101 @@
+package eu.paasword.drools;
+
+import eu.paasword.drools.Util;
+import java.util.ArrayList;
+import eu.paasword.drools.risk.*;
+
+//-------------------------Validation-----------------------------------------------------
+
+rule "rule-ValidationMandatoryInputCheck"
+when
+    not ( 
+        exists(  Asset( isentrypoint==true ) && Asset( istarget==true ) && Attacker() ) 
+        )
+then
+    System.out.println( "Exception: At least one entry-point one target-point and an attacker profile should exist" );
+    ExceptionStructural ex1 = new ExceptionStructural("At least one entry-point one target-point and an attacker profile should exist");
+    insert(ex1);
+end
+
+rule "rule-ValidationEntryPointValidation"
+when
+    $as1:Asset( isentrypoint==true ) 
+    $as2:Asset( istarget==true )  
+    eval($as1==$as2)
+then
+    System.out.println( "Exception: entry point should not coininside with target points for asset "+$as1.getId() );
+    ExceptionStructural ex1 = new ExceptionStructural("entry point should not coininside with target points "+$as1.getId());
+    insert(ex1);
+end
+
+//-------------------------Propagation Rules----------------------------------------------------
+
+//Asset
+//Type                type: 0-hardware  1-OS   2-App
+//Vulnerability
+//access vector         av: 0-Local 1-Adjacent      2-Network
+//access complexity     ac: 0-Low   1-Medium        2-High
+//authentication        at: 0-None  1-SingleFactor  2-MultipleFactor
+//Dependencies
+//                    type: 0-IsInstalledOn  1-NetworkConnected
+//Attacker
+//                  skill:  0-Low  1-Medium  2-High
+
+rule "rule-PropagationFromEntryPointsRemote"
+when
+    $assetto:Asset( isentrypoint==true )
+    $attacker:Attacker()
+    $vuln  : Vulnerability( av==2 || av==1, ac<=$attacker.skill ) from $assetto.vulnerabilities
+    not ( exists ( Path( from=="RemoteAdversary" , to==$assetto.id , vuln==$vuln.getId() )  ) )        
+then    
+    //System.out.println( "Path: RemoteAdversary -> "+$assetto.getId() +" ("+$vuln.getId()+")"  );
+    Path path = new Path( $vuln.getId() , "RemoteAdversary" , $assetto.getId() );
+    insert(path);
+end
+
+
+rule "rule-PropagationFromEntryPointsLocal"
+when
+    $assetto:Asset( isentrypoint==true )
+    $attacker:Attacker()
+    $vuln  : Vulnerability( av==0 , ac<=$attacker.skill ) from $assetto.vulnerabilities
+    not ( exists ( Path( from=="LocalAdversary" , to==$assetto.id , vuln==$vuln.getId() )  ) )
+then    
+    //System.out.println( "Path: LocalAdversary -> "+$assetto.getId() +" ("+$vuln.getId()+")"   );
+    Path path = new Path( $vuln.getId() , "LocalAdversary" , $assetto.getId() );
+    insert(path);
+end
+
+rule "rule-PropagationFromPivotingLocal"
+when
+    $path:Path($assetfromid:to)             //the destination of a previous path
+    $assetfrom:Asset( id==$assetfromid )
+    $dependency:Dependency( from==$assetfrom.id , $assettargetid:to ,$dtype:type )
+    eval ($dtype==0)                                                                //is-InstalledOn
+    $assetto:Asset( id==$assettargetid )
+    $attacker:Attacker()
+    $vuln  : Vulnerability( av==0 , ac<=$attacker.skill ) from $assetto.vulnerabilities
+    not ( exists ( Path( from==$assetfrom.id , to==$assetto.id , vuln==$vuln.getId() )  ) )
+then    
+    //System.out.println( "Path: "+$assetfrom.getId() +" -> "+$assetto.getId() +" ("+$vuln.getId()+")"  );
+    Path path = new Path( $vuln.getId() , $assetfrom.getId() , $assetto.getId() );
+    insert(path);
+end
+
+
+rule "rule-PropagationFromPivotingRemote"
+when
+    $path:Path($assetfromid:to)             //the destination of a previous path
+    $assetfrom:Asset( id==$assetfromid )
+    $dependency:Dependency( from==$assetfrom.id , $assettargetid:to ,$dtype:type )
+    eval ($dtype==1)                                                                //is-InstalledOn
+    $assetto:Asset( id==$assettargetid )
+    $attacker:Attacker()
+    $vuln  : Vulnerability( av==1 || av==2 , ac<=$attacker.skill ) from $assetto.vulnerabilities
+    not ( exists ( Path( from==$assetfrom.id , to==$assetto.id , vuln==$vuln.getId() )  ) )
+then    
+    //System.out.println( "Path: "+$assetfrom.getId() +" -> "+$assetto.getId() +" ("+$vuln.getId()+")"   );
+    Path path = new Path( $vuln.getId() , $assetfrom.getId() , $assetto.getId() );
+    insert(path);
+end
+

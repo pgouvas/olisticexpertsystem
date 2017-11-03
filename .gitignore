@@ -32,6 +32,6 @@ rebel.xml
 *.bat
 
 # Semantic Authorization
-rules/
+#rules/
 CM-INFERRED.json
 

@@ -99,3 +99,31 @@ then
     insert(path);
 end
 
+//--------------------------PathExtraction---------
+
+rule "rule-ChainGeneration-EntryPoint"
+when
+    $path:Path( from=="RemoteAdversary" )
+    not ( exists ( Chain( entrypoint==$path )  ) )
+then    
+    Chain chain = new Chain($path);
+    insert(chain);
+//    System.out.println( "Chain   New: "+chain.getId()+" with path "+$path.getFrom()+ "->"+$path.getTo()+"("+$path.getVuln()+")"  );
+//    chain.print();
+end
+
+
+rule "rule-ChainGeneration-Propagate"
+when
+    $chain:Chain( $lastpath:tail )
+    $newpath:Path( from==$lastpath.to )
+    eval (!$chain.getNodes().contains($newpath.getTo()) && $chain.getNodes().size() < 6 )        //avoid loops
+then    
+    Chain newchain = Chain.cloneChain($chain,$newpath);
+    newchain.addPath($newpath);
+    insert(newchain);
+//    System.out.println( "Cloning");
+//    System.out.println( "Original Chain: " +$chain.print());
+//    System.out.println( "Adding    Path: " +$newpath.getFrom()+ "->"+$newpath.getTo()+"("+$newpath.getVuln()+")" );
+//    System.out.println( "New      Chain: " +newchain.print());
+end

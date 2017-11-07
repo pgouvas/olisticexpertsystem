@@ -2,6 +2,7 @@ package eu.paasword.drools.main;
 
 import eu.paasword.drools.risk.Asset;
 import eu.paasword.drools.risk.Attacker;
+import eu.paasword.drools.risk.Chain;
 import eu.paasword.drools.risk.Dependency;
 import eu.paasword.drools.risk.ExceptionStructural;
 import eu.paasword.drools.risk.Path;
@@ -67,6 +68,7 @@ public class AttackPathsTest {
         Dependency d6 = new Dependency("database", "os2", 1);
         Dependency d7 = new Dependency("webapp", "os3", 1);
         Dependency d8 = new Dependency("webapp", "db", 0);
+        Dependency d9 = new Dependency("os2", "joomla", 1);
 
         //Skill
         //0-Low  1-Medium  2-High  
@@ -97,13 +99,14 @@ public class AttackPathsTest {
         ksession.insert(d6);
         ksession.insert(d7);
         ksession.insert(d8);
+        ksession.insert(d9);
         ksession.insert(at1);//attacker profile
 
-//////////////////scaling test
+//////////////////----Scaling test
         int assetmax = 4000;
-        int vulnsmax = 40;
-        int vulnspernode = 2;
-        int deppernode = 3;
+        int vulnsmax = 10;
+        int vulnspernode = 4;
+        int deppernode = 2;
         List<Asset> labassets = new ArrayList<>();
         List<Vulnerability> labvulns = new ArrayList<>();
         List<Dependency> labdeps = new ArrayList<>();
@@ -127,7 +130,7 @@ public class AttackPathsTest {
             }
 
             for (int j = 0; j < deppernode; j++) {
-                int randomNum = ThreadLocalRandom.current().nextInt(0, 3999);
+                int randomNum = ThreadLocalRandom.current().nextInt(0, assetmax-1);
                 if (i != randomNum) {
                     Dependency dep = new Dependency(as.getId(), labassets.get(randomNum).getId(), 1);
                     labdeps.add(dep);
@@ -140,12 +143,12 @@ public class AttackPathsTest {
         labdeps.stream().forEach(t -> ksession.insert(t));
 
         labassets.get(0).setIsentrypoint(true);
-        labassets.get(1).setIsentrypoint(true);
+        //labassets.get(1).setIsentrypoint(true);
 
 ////////////////////////////////////
         //fire
         long startTime = System.currentTimeMillis();
-
+        
         ksession.fireAllRules();
 
         long stopTime = System.currentTimeMillis();
@@ -156,6 +159,8 @@ public class AttackPathsTest {
 
         //iterate results
         boolean errorduringexecution = false;
+        int chaincount=0;
+        int pathcount=0;
         Map<String, List<Map<String, List<String>>>> edges = new HashMap<>();         //<String, Map<String,String>{0} Map<String,String>{1} > = Map<fromnode, Map<vuln,tonone> Map<tonode,vuln>{1}   > 
 
         for (FactHandle handle : ksession.getFactHandles(new ObjectFilter() {
@@ -166,6 +171,9 @@ public class AttackPathsTest {
                 if (Path.class.equals(object.getClass())) {
                     return true;
                 }
+                if (Chain.class.equals(object.getClass())) {
+                    return true;
+                }                
                 return false;
             }
         })) {//for body
@@ -176,10 +184,11 @@ public class AttackPathsTest {
                 break;
             } else if (obj instanceof Path) {
                 Path path = (Path) obj;
+                pathcount++;
                 String from = path.getFrom();
                 String target = path.getTo();
                 String vuln = path.getVuln();
-
+                //System.out.println("Path: "+from+" -> "+target+" ("+vuln+")");
                 List<Map<String, List<String>>> edgelist;
                 Map<String, List<String>> vulnmap;
                 Map<String, List<String>> targetmap;
@@ -216,21 +225,29 @@ public class AttackPathsTest {
                 }
 
 //                edges.put(path.getFrom(), vulnmap);
+            } else if (obj instanceof Chain){           //END PATH
+                Chain chain = (Chain)obj;
+                chaincount++;
+//                System.out.println( chain.print() );
             }
         }//for
 
         stopTime = System.currentTimeMillis();
         elapsedTime = stopTime - startTime;
-        System.out.println("Path Indexing: " + elapsedTime);
+        System.out.println("Path & Chain Indexing: " + elapsedTime);
+        System.out.println("#Paths : " + pathcount );
+        System.out.println("#Chains: " + chaincount);
 
-        if (!errorduringexecution) {
-            logger.info(edges.toString());
-            startTime = System.currentTimeMillis();
-            constructPathsFromEntryPoint("RemoteAdversary", edges);
-            stopTime = System.currentTimeMillis();
-            elapsedTime = stopTime - startTime;
-            System.out.println("Path Serialization: " + elapsedTime);
-        }//if
+//        if (!errorduringexecution) {
+//            logger.info(edges.toString());
+//            startTime = System.currentTimeMillis();
+//            
+//            constructPathsFromEntryPoint("RemoteAdversary", edges);
+//            
+//            stopTime = System.currentTimeMillis();
+//            elapsedTime = stopTime - startTime;
+//            System.out.println("Chain Serialization: " + elapsedTime);
+//        }//if
 
     }//EoM
 
@@ -238,6 +255,7 @@ public class AttackPathsTest {
 //        System.out.println("Exploring " + entrypoint);
         Map<String, List<String>> targets = edges.get(entrypoint).get(1);
         String path = entrypoint + "-> ";
+        
         for (Map.Entry<String, List<String>> entry : targets.entrySet()) {
             String target = entry.getKey();
             List<String> vulnlist = entry.getValue();
@@ -250,7 +268,7 @@ public class AttackPathsTest {
     private static void explorePathsFromNode(String node, String vul, String path, Map<String, List<Map<String, List<String>>>> edges) {
 //        System.out.println("Exploring " + node + " from path " + path);
         path += node + "(" + vul + ") -> ";
-        //System.out.println("Path:" + path);
+        System.out.println("Chain:" + path);
 
         if (edges.get(node) == null) {
 //            System.out.println("end of recursion for node <" + node + "> using path:" + path);
